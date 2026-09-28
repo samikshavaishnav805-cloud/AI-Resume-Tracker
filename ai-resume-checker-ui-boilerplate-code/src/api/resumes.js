@@ -1,0 +1,49 @@
+import { apiClient } from "./client";
+
+export const resumesApi = {
+  list: () =>
+    apiClient.get("/resumes").then((r) => r.data),
+
+  get: (id) =>
+    apiClient.get(`/resumes/${id}`).then((r) => r.data),
+
+  getVersion: (id, versionId) =>
+    apiClient
+      .get(`/resumes/${id}/versions/${versionId}`)
+      .then((r) => r.data),
+
+  upload: (file, title) => {
+  const formData = new FormData();
+
+  formData.append("file", file);
+
+  if (title) {
+    formData.append("title", title);
+  }
+
+  return apiClient.post("/resumes", formData, {
+    headers: {
+      "Content-Type": undefined,
+    },
+  }).then((res) => res.data);
+},
+
+  remove: (id) =>
+    apiClient.delete(`/resumes/${id}`).then((r) => r.data),
+
+  analyze: async () => {
+    throw new Error("AI analysis is the next implementation stage");
+  },
+
+  analyses: async () => ({ analyses: [] }),
+
+  analysisForVersion: async () => {
+    throw new Error("AI analysis is not implemented yet");
+  },
+
+  rewrite: async () => {
+    throw new Error("Resume rewriting is not implemented yet");
+  },
+
+  diff: async () => ({ hunks: [] }),
+};
