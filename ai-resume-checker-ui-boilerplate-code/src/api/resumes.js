@@ -31,15 +31,16 @@ export const resumesApi = {
   remove: (id) =>
     apiClient.delete(`/resumes/${id}`).then((r) => r.data),
 
-  analyze: async () => {
-    throw new Error("AI analysis is the next implementation stage");
-  },
+analyze: (id, body) =>
+  apiClient.post(`/resumes/${id}/analyze`, body).then((r) => r.data),
 
-  analyses: async () => ({ analyses: [] }),
+analyses: (id) =>
+  apiClient.get(`/resumes/${id}/analyses`).then((r) => r.data),
 
-  analysisForVersion: async () => {
-    throw new Error("AI analysis is not implemented yet");
-  },
+analysisForVersion: (id, versionId) =>
+  apiClient
+    .get(`/resumes/${id}/versions/${versionId}/analysis`)
+    .then((r) => r.data),
 
   rewrite: async () => {
     throw new Error("Resume rewriting is not implemented yet");
