@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
 
+const { calculateJobMatch } = require("../utils/jobMatcher");
 const { calculateATS } = require("../utils/atsAnalyzer");
 const { pool } = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
@@ -415,6 +416,91 @@ router.get("/:id/versions/:versionId/analysis", async (req, res) => {
     }
 });
 
+// Match resume against a job description
+router.post("/:id/match", async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const resumeId = req.params.id;
+    const { versionId, jobDescription, targetRole } = req.body;
+
+    if (!jobDescription || jobDescription.trim().length < 50) {
+      return res.status(400).json({
+        message: "Please provide a job description with at least 50 characters."
+      });
+    }
+
+    const ownership = await pool.query(
+      "SELECT id FROM resumes WHERE id = $1 AND user_id = $2",
+      [resumeId, userId]
+    );
+
+    if (!ownership.rows.length) {
+      return res.status(404).json({ message: "Resume not found" });
+    }
+
+    let versionQuery;
+
+    if (versionId) {
+      versionQuery = await pool.query(
+        `SELECT id, extracted_text FROM resume_versions
+         WHERE id = $1 AND resume_id = $2`,
+        [versionId, resumeId]
+      );
+    } else {
+      versionQuery = await pool.query(
+        `SELECT id, extracted_text FROM resume_versions
+         WHERE resume_id = $1
+         ORDER BY version_number DESC LIMIT 1`,
+        [resumeId]
+      );
+    }
+
+    if (!versionQuery.rows.length) {
+      return res.status(404).json({ message: "Resume version not found" });
+    }
+
+    const version = versionQuery.rows[0];
+
+    const result = calculateJobMatch(
+      version.extracted_text,
+      jobDescription
+    );
+
+    const saved = await pool.query(
+      `INSERT INTO resume_analyses
+       (user_id, resume_id, version_id, target_role, job_description,
+        ats_score, score_breakdown, summary, model, issues, strengths,
+        keywords_present, keywords_missing, bullet_rewrites)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       RETURNING id, created_at`,
+      [
+        userId,
+        resumeId,
+        version.id,
+        targetRole || null,
+        jobDescription,
+        result.matchPercentage,
+        JSON.stringify({ jobMatch: result.matchPercentage }),
+        `Your resume matches ${result.matchPercentage}% of the detected job requirements.`,
+        result.model,
+        JSON.stringify(result.suggestions),
+        JSON.stringify(result.matchedSkills),
+        JSON.stringify(result.matchedKeywords),
+        JSON.stringify(result.missingSkills),
+        JSON.stringify([])
+      ]
+    );
+
+    res.json({
+      success: true,
+      analysisId: saved.rows[0].id,
+      createdAt: saved.rows[0].created_at,
+      ...result
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // DELETE RESUME
 router.delete("/:id", async (req, res) => {
