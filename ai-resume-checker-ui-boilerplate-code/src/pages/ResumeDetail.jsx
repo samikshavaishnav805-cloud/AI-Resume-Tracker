@@ -207,7 +207,7 @@ export default function ResumeDetail() {
         )}
       </Card>
 
-      {!analysis && !analysisQuery.isLoading && (
+      <>
               <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -311,7 +311,7 @@ export default function ResumeDetail() {
           )}
         </div>
       </Card>
-      )}
+    </>
 
       {analysisQuery.isLoading && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
