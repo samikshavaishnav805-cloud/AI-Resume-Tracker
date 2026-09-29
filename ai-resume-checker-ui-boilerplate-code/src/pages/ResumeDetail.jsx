@@ -23,6 +23,7 @@ import {
   useAnalysisForVersion,
   useAnalyzeResume,
   useApplyRewrites,
+  useMatchJob,
 } from "@/hooks/useResumes";
 
 export default function ResumeDetail() {
@@ -49,9 +50,13 @@ export default function ResumeDetail() {
   const analysis = analysisQuery.data;
 
   const analyze = useAnalyzeResume(id);
+  const matchJob = useMatchJob(id);
   const applyRewrites = useApplyRewrites(id);
   const [targetRole, setTargetRole] = useState("");
   const [tab, setTab] = useState("score");
+
+  const [jobDescription, setJobDescription] = useState("");
+  const [jobMatch, setJobMatch] = useState(null);
 
   async function runAnalyze() {
     try {
@@ -63,6 +68,22 @@ export default function ResumeDetail() {
       /* surfaced below */
     }
   }
+
+  async function runJobMatch() {
+  if (!jobDescription.trim()) return;
+
+  try {
+    const result = await matchJob.mutateAsync({
+      versionId: activeVersionId,
+      jobDescription: jobDescription.trim(),
+      targetRole: targetRole.trim() || undefined,
+    });
+
+    setJobMatch(result);
+  } catch {
+    // Error is displayed below
+  }
+}
 
   async function runApplyRewrites(rewriteIds) {
     if (!analysis?._id) return;
@@ -187,11 +208,109 @@ export default function ResumeDetail() {
       </Card>
 
       {!analysis && !analysisQuery.isLoading && (
-        <EmptyState
-          icon={Sparkles}
-          title="No analysis yet for this version"
-          description="Click Analyze above to score this resume version with AI."
-        />
+              <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Job Description Matcher
+          </CardTitle>
+          <CardDescription>
+            Compare your resume against a specific job and identify missing skills.
+          </CardDescription>
+        </CardHeader>
+
+        <div className="space-y-4">
+          <textarea
+            value={jobDescription}
+            onChange={(e) => setJobDescription(e.target.value)}
+            placeholder="Paste the complete job description here..."
+            rows={7}
+            className="w-full rounded-xl border border-[var(--border)] bg-transparent p-4 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+          />
+
+          <Button
+            variant="accent"
+            onClick={runJobMatch}
+            disabled={
+              matchJob.isPending ||
+              !activeVersionId ||
+              jobDescription.trim().length < 50
+            }
+          >
+            {matchJob.isPending ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Matching...
+              </>
+            ) : (
+              "Match My Resume"
+            )}
+          </Button>
+
+          {matchJob.error && (
+            <p className="text-sm text-[var(--danger)]">
+              {matchJob.error.message}
+            </p>
+          )}
+
+          {jobMatch && (
+            <div className="space-y-5 border-t border-[var(--border)] pt-5">
+              <div className="text-center">
+                <p className="text-sm text-[var(--ink-muted)]">
+                  Resume–Job Match
+                </p>
+                <div className="text-5xl font-bold text-[var(--accent-strong)]">
+                  {jobMatch.matchPercentage}%
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-2">Matched Skills</h4>
+                <div className="flex flex-wrap gap-2">
+                  {jobMatch.matchedSkills.length ? (
+                    jobMatch.matchedSkills.map((skill) => (
+                      <Badge key={skill} tone="success">
+                        {skill}
+                      </Badge>
+                    ))
+                  ) : (
+                    <p className="text-sm text-[var(--ink-muted)]">
+                      No detected skill matches yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-2">Missing Skills</h4>
+                <div className="flex flex-wrap gap-2">
+                  {jobMatch.missingSkills.length ? (
+                    jobMatch.missingSkills.map((skill) => (
+                      <Badge key={skill} tone="warning">
+                        {skill}
+                      </Badge>
+                    ))
+                  ) : (
+                    <p className="text-sm text-[var(--ink-muted)]">
+                      No missing skills detected.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-2">
+                  Improvement Suggestions
+                </h4>
+                <ul className="list-disc pl-5 space-y-2 text-sm text-[var(--ink-muted)]">
+                  {jobMatch.suggestions.map((suggestion, index) => (
+                    <li key={index}>{suggestion}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
       )}
 
       {analysisQuery.isLoading && (

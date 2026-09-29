@@ -1,6 +1,9 @@
 import { apiClient } from "./client";
 
 export const resumesApi = {
+  matchJob: (id, body) =>
+  apiClient.post(`/resumes/${id}/match`, body).then(r => r.data),
+  
   list: () =>
     apiClient.get("/resumes").then((r) => r.data),
 

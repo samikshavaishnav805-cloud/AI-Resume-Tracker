@@ -68,6 +68,12 @@ export function useUploadResume() {
   });
 }
 
+export function useMatchJob(id) {
+  return useMutation({
+    mutationFn: (body) => resumesApi.matchJob(id, body),
+  });
+}
+
 export function useAnalyzeResume(id) {
   const qc = useQueryClient();
   const toast = useToast();
