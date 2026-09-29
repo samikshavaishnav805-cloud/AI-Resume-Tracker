@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
 
+const { calculateATS } = require("../utils/atsAnalyzer");
 const { pool } = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 
@@ -221,6 +222,199 @@ router.get("/:id/versions/:versionId", async (req, res) => {
         });
     }
 });
+
+// ANALYZE RESUME
+router.post("/:id/analyze", async (req, res) => {
+    try {
+        const { versionId, targetRole, jobDescription } = req.body;
+
+        if (!versionId) {
+            return res.status(400).json({
+                message: "Version ID is required",
+            });
+        }
+
+        if (jobDescription && jobDescription.length > 15000) {
+            return res.status(400).json({
+                message: "Job description is too long",
+            });
+        }
+
+        const result = await pool.query(
+            `SELECT rv.id, rv.extracted_text
+             FROM resume_versions rv
+             JOIN resumes r ON r.id = rv.resume_id
+             WHERE r.id = $1
+               AND rv.id = $2
+               AND r.user_id = $3`,
+            [req.params.id, versionId, req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                message: "Resume version not found",
+            });
+        }
+
+        const parsed = calculateATS(
+            result.rows[0].extracted_text,
+            targetRole || "",
+            jobDescription || ""
+        );
+
+        const saved = await pool.query(
+            `INSERT INTO resume_analyses
+             (
+                user_id,
+                resume_id,
+                version_id,
+                target_role,
+                job_description,
+                ats_score,
+                score_breakdown,
+                summary,
+                model,
+                issues,
+                strengths,
+                keywords_present,
+                keywords_missing,
+                bullet_rewrites
+             )
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+             RETURNING id, created_at`,
+            [
+                req.user.id,
+                req.params.id,
+                versionId,
+                targetRole || null,
+                jobDescription || null,
+                parsed.atsScore,
+                JSON.stringify(parsed.scoreBreakdown),
+                parsed.summary,
+                parsed.model,
+                JSON.stringify(parsed.issues),
+                JSON.stringify(parsed.strengths),
+                JSON.stringify(parsed.keywordsPresent),
+                JSON.stringify(parsed.keywordsMissing),
+                JSON.stringify(parsed.bulletRewrites),
+            ]
+        );
+
+        return res.status(201).json({
+            message: "Resume analyzed successfully",
+            analysis: {
+                _id: String(saved.rows[0].id),
+                versionId: String(versionId),
+                ...parsed,
+                createdAt: saved.rows[0].created_at,
+                targetRole: targetRole || null,
+                jobDescription: jobDescription || null,
+            },
+        });
+
+    } catch (error) {
+        console.error("ATS analysis error:", error.message);
+
+        return res.status(500).json({
+            message: error.message || "Could not analyze resume",
+        });
+    }
+});
+
+
+// GET ANALYSES FOR A RESUME
+router.get("/:id/analyses", async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT a.*
+             FROM resume_analyses a
+             JOIN resumes r ON r.id = a.resume_id
+             WHERE a.resume_id = $1
+               AND a.user_id = $2
+               AND r.user_id = $2
+             ORDER BY a.created_at DESC`,
+            [req.params.id, req.user.id]
+        );
+
+        return res.json({
+            analyses: result.rows.map((a) => ({
+                _id: String(a.id),
+                versionId: String(a.version_id),
+                atsScore: a.ats_score,
+                scoreBreakdown: a.score_breakdown,
+                summary: a.summary,
+                model: a.model,
+                issues: a.issues,
+                strengths: a.strengths,
+                keywordsPresent: a.keywords_present,
+                keywordsMissing: a.keywords_missing,
+                bulletRewrites: a.bullet_rewrites,
+                targetRole: a.target_role,
+                jobDescription: a.job_description,
+                createdAt: a.created_at,
+            })),
+        });
+
+    } catch (error) {
+        console.error("Analysis history error:", error.message);
+
+        return res.status(500).json({
+            message: "Could not fetch analysis history",
+        });
+    }
+});
+
+
+// GET LATEST ANALYSIS FOR A VERSION
+router.get("/:id/versions/:versionId/analysis", async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT a.*
+             FROM resume_analyses a
+             JOIN resumes r ON r.id = a.resume_id
+             WHERE a.resume_id = $1
+               AND a.version_id = $2
+               AND a.user_id = $3
+               AND r.user_id = $3
+             ORDER BY a.created_at DESC
+             LIMIT 1`,
+            [req.params.id, req.params.versionId, req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.json({ analysis: null });
+        }
+
+        const a = result.rows[0];
+
+        return res.json({
+            analysis: {
+                _id: String(a.id),
+                versionId: String(a.version_id),
+                atsScore: a.ats_score,
+                scoreBreakdown: a.score_breakdown,
+                summary: a.summary,
+                model: a.model,
+                issues: a.issues,
+                strengths: a.strengths,
+                keywordsPresent: a.keywords_present,
+                keywordsMissing: a.keywords_missing,
+                bulletRewrites: a.bullet_rewrites,
+                targetRole: a.target_role,
+                jobDescription: a.job_description,
+                createdAt: a.created_at,
+            },
+        });
+
+    } catch (error) {
+        console.error("Version analysis error:", error.message);
+
+        return res.status(500).json({
+            message: "Could not fetch analysis",
+        });
+    }
+});
+
 
 // DELETE RESUME
 router.delete("/:id", async (req, res) => {

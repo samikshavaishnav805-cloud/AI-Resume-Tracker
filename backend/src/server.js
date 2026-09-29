@@ -6,7 +6,6 @@ const env = require("./src/config/env");
 const { connectDB } = require("./src/config/db");
 
 const authRoutes = require("./src/routes/auth");
-const resumeRoutes = require("./src/routes/resumes");
 
 const app = express();
 
