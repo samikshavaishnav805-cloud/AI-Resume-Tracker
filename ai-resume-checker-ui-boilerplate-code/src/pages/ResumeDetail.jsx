@@ -323,6 +323,125 @@ export default function ResumeDetail() {
       </Card>
     </>
 
+<Card>
+  <CardHeader>
+    <CardTitle className="text-base">
+      ATS Analysis History
+    </CardTitle>
+    <CardDescription>
+      Track your resume score across previous analyses.
+    </CardDescription>
+  </CardHeader>
+
+  <div className="space-y-4">
+    {historyQuery.isLoading ? (
+      <p className="text-sm text-muted-foreground">
+        Loading analysis history...
+      </p>
+    ) : historyQuery.isError ? (
+      <p className="text-sm text-destructive">
+        Failed to load analysis history. Please refresh and try again.
+      </p>
+    ) : analysisHistory.length === 0 ? (
+      <p className="text-sm text-muted-foreground">
+        No previous analyses yet. Run your first ATS analysis to start tracking your score.
+      </p>
+    ) : (
+      <>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg border p-3">
+            <p className="text-sm text-muted-foreground">
+              Total Analyses
+            </p>
+            <p className="text-2xl font-semibold">
+              {analysisHistory.length}
+            </p>
+          </div>
+
+          <div className="rounded-lg border p-3">
+            <p className="text-sm text-muted-foreground">
+              Latest ATS Score
+            </p>
+            <p className="text-2xl font-semibold">
+              {analysisHistory[0].atsScore}/100
+            </p>
+          </div>
+        </div>
+
+        {analysisHistory.map((item, index) => {
+          const previous = analysisHistory[index + 1];
+
+          const score = Number(item.atsScore);
+          const previousScore = previous
+            ? Number(previous.atsScore)
+            : null;
+
+          const change = previous
+            ? score - previousScore
+            : null;
+
+          const date = item.createdAt
+            ? new Date(item.createdAt).toLocaleString()
+            : "Date unavailable";
+
+          return (
+            <div
+              key={item._id || `${item.versionId}-${index}`}
+              className="space-y-2 rounded-lg border p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">
+                    {item.targetRole || "General Resume Analysis"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {date}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Resume version: {item.versionId}
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-lg font-semibold">
+                    {score}/100
+                  </p>
+
+                  {change !== null && (
+                    <p
+                      className={`text-xs ${
+                        change > 0
+                          ? "text-green-600"
+                          : change < 0
+                          ? "text-red-600"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {change > 0 ? "+" : ""}
+                      {change} points
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{
+                    width: `${Math.max(
+                      0,
+                      Math.min(100, score)
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </>
+    )}
+  </div>
+</Card>
     
 <Card>
   <CardHeader>
@@ -481,6 +600,7 @@ export default function ResumeDetail() {
     </div>
   )}
 </Card>
+
 
 
       {analysisQuery.isLoading && (
