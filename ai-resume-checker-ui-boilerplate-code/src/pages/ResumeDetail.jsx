@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Sparkles, ArrowLeft, Loader2, FileText, Download } from "lucide-react";
@@ -26,6 +27,15 @@ import {
   useMatchJob,
   useAnalyses,
 } from "@/hooks/useResumes";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 export default function ResumeDetail() {
   const { id } = useParams();
@@ -36,14 +46,23 @@ export default function ResumeDetail() {
   const versions = data?.versions || [];
 
   const [activeVersionId, setActiveVersionId] = useState(null);
+  const [targetRole, setTargetRole] = useState("");
+  const [tab, setTab] = useState("score");
+  const [jobDescription, setJobDescription] = useState("");
+  const [jobMatch, setJobMatch] = useState(null);
+
   useEffect(() => {
     if (!activeVersionId && versions.length) {
-      setActiveVersionId(resume?.currentVersionId || versions[versions.length - 1]._id);
+      setActiveVersionId(
+        resume?.currentVersionId || versions[versions.length - 1]._id
+      );
     }
   }, [versions, resume, activeVersionId]);
 
   const activeVersion = useMemo(
-    () => versions.find((v) => v._id === activeVersionId),
+    () => versions.find(
+      (v) => String(v._id) === String(activeVersionId)
+    ),
     [versions, activeVersionId]
   );
 
@@ -52,6 +71,15 @@ export default function ResumeDetail() {
 
   const historyQuery = useAnalyses(id);
   const analysisHistory = historyQuery.data || [];
+
+  // History is returned newest-first by the backend.
+  const chartData = [...analysisHistory].reverse().map((item, index) => ({
+    name: item.createdAt
+      ? new Date(item.createdAt).toLocaleDateString("en-IN")
+      : `Analysis ${index + 1}`,
+    score: Math.max(0, Math.min(100, Number(item.atsScore) || 0)),
+    role: item.targetRole || "General Analysis",
+  }));
 
   const scoreChange =
     analysisHistory.length >= 2
@@ -62,38 +90,32 @@ export default function ResumeDetail() {
   const analyze = useAnalyzeResume(id);
   const matchJob = useMatchJob(id);
   const applyRewrites = useApplyRewrites(id);
-  const [targetRole, setTargetRole] = useState("");
-  const [tab, setTab] = useState("score");
-
-  const [jobDescription, setJobDescription] = useState("");
-  const [jobMatch, setJobMatch] = useState(null);
 
   async function runAnalyze() {
+    if (!activeVersionId) return;
     try {
       await analyze.mutateAsync({
         versionId: activeVersionId,
         targetRole: targetRole.trim() || undefined,
       });
     } catch {
-      /* surfaced below */
+      // The mutation hook displays the error.
     }
   }
 
   async function runJobMatch() {
-  if (!jobDescription.trim()) return;
-
-  try {
-    const result = await matchJob.mutateAsync({
-      versionId: activeVersionId,
-      jobDescription: jobDescription.trim(),
-      targetRole: targetRole.trim() || undefined,
-    });
-
-    setJobMatch(result);
-  } catch {
-    // Error is displayed below
+    if (!jobDescription.trim() || !activeVersionId) return;
+    try {
+      const result = await matchJob.mutateAsync({
+        versionId: activeVersionId,
+        jobDescription: jobDescription.trim(),
+        targetRole: targetRole.trim() || undefined,
+      });
+      setJobMatch(result);
+    } catch {
+      // The mutation hook displays the error.
+    }
   }
-}
 
   async function runApplyRewrites(rewriteIds) {
     if (!analysis?._id) return;
@@ -102,23 +124,23 @@ export default function ResumeDetail() {
         analysisId: analysis._id,
         rewriteIds: rewriteIds.length ? rewriteIds : undefined,
       });
+
       if (res?.version?._id) {
         const newVersionId = res.version._id;
         setActiveVersionId(newVersionId);
         setTab("score");
-        // Auto-analyze the new version with the same target role so the user
-        // immediately sees whether their rewrites moved the score.
+
         try {
           await analyze.mutateAsync({
             versionId: newVersionId,
             targetRole: targetRole.trim() || undefined,
           });
         } catch {
-          /* surfaced via analyze.error inside the Run analysis card */
+          // The mutation hook displays the error.
         }
       }
     } catch {
-      /* surfaced inside the card */
+      // The rewrite component displays the error.
     }
   }
 
@@ -131,12 +153,12 @@ export default function ResumeDetail() {
     );
   }
 
-  if (error) {
+  if (error || !resume) {
     return (
       <EmptyState
         icon={FileText}
         title="Resume not found"
-        description={error.message}
+        description={error?.message || "This resume could not be loaded."}
         action={
           <Button variant="outline" onClick={() => nav("/resumes")}>
             Back to resumes
@@ -149,14 +171,10 @@ export default function ResumeDetail() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={resume?.title || "Resume"}
-        description={
-          resume
-            ? `Updated ${relativeTime(resume.updatedAt)} · ${versions.length} version${
-                versions.length > 1 ? "s" : ""
-              }`
-            : ""
-        }
+        title={resume.title || "Resume"}
+        description={`Updated ${relativeTime(resume.updatedAt)} · ${
+          versions.length
+        } version${versions.length === 1 ? "" : "s"}`}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={() => nav("/resumes")}>
@@ -172,12 +190,14 @@ export default function ResumeDetail() {
         }
       />
 
+      {/* Run ATS analysis */}
       <Card>
-        <div className="flex flex-wrap items-end gap-4 justify-between">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="space-y-2">
             <CardTitle className="text-base">Run analysis</CardTitle>
             <CardDescription>
-              Score this version with Gemini and get issues, strengths, and rewrites.
+              Analyze this version and review its score, issues, strengths,
+              and suggested rewrites.
             </CardDescription>
             <VersionSwitcher
               versions={versions}
@@ -185,9 +205,10 @@ export default function ResumeDetail() {
               onChange={setActiveVersionId}
             />
           </div>
-          <div className="flex items-center gap-3 flex-1 min-w-[280px] max-w-[520px]">
+
+          <div className="flex min-w-[280px] max-w-[520px] flex-1 items-center gap-3">
             <Input
-              placeholder="Target role (optional, e.g. Senior Frontend Engineer)"
+              placeholder="Target role (optional, e.g. Software Developer Intern)"
               value={targetRole}
               onChange={(e) => setTargetRole(e.target.value)}
             />
@@ -200,7 +221,8 @@ export default function ResumeDetail() {
             >
               {analyze.isPending ? (
                 <>
-                  <Loader2 size={14} className="animate-spin" /> Analyzing…
+                  <Loader2 size={14} className="animate-spin" />
+                  Analyzing…
                 </>
               ) : (
                 <>
@@ -210,21 +232,21 @@ export default function ResumeDetail() {
             </Button>
           </div>
         </div>
+
         {analyze.error && (
-          <div className="mt-4 text-xs text-[var(--danger)] bg-[#F8E3E0] rounded-xl px-3 py-2">
+          <p className="mt-4 rounded-xl bg-[#F8E3E0] px-3 py-2 text-xs text-[var(--danger)]">
             {analyze.error.message}
-          </div>
+          </p>
         )}
       </Card>
 
-      <>
-              <Card>
+      {/* Job Description Matcher */}
+      <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            Job Description Matcher
-          </CardTitle>
+          <CardTitle className="text-base">Job Description Matcher</CardTitle>
           <CardDescription>
-            Compare your resume against a specific job and identify missing skills.
+            Compare your resume against a job description and identify
+            missing skills.
           </CardDescription>
         </CardHeader>
 
@@ -274,13 +296,11 @@ export default function ResumeDetail() {
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">Matched Skills</h4>
+                <h4 className="mb-2 font-semibold">Matched Skills</h4>
                 <div className="flex flex-wrap gap-2">
-                  {jobMatch.matchedSkills.length ? (
+                  {jobMatch.matchedSkills?.length ? (
                     jobMatch.matchedSkills.map((skill) => (
-                      <Badge key={skill} tone="success">
-                        {skill}
-                      </Badge>
+                      <Badge key={skill} tone="success">{skill}</Badge>
                     ))
                   ) : (
                     <p className="text-sm text-[var(--ink-muted)]">
@@ -291,13 +311,11 @@ export default function ResumeDetail() {
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">Missing Skills</h4>
+                <h4 className="mb-2 font-semibold">Missing Skills</h4>
                 <div className="flex flex-wrap gap-2">
-                  {jobMatch.missingSkills.length ? (
+                  {jobMatch.missingSkills?.length ? (
                     jobMatch.missingSkills.map((skill) => (
-                      <Badge key={skill} tone="warning">
-                        {skill}
-                      </Badge>
+                      <Badge key={skill} tone="warning">{skill}</Badge>
                     ))
                   ) : (
                     <p className="text-sm text-[var(--ink-muted)]">
@@ -308,304 +326,197 @@ export default function ResumeDetail() {
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">
-                  Improvement Suggestions
-                </h4>
-                <ul className="list-disc pl-5 space-y-2 text-sm text-[var(--ink-muted)]">
-                  {jobMatch.suggestions.map((suggestion, index) => (
-                    <li key={index}>{suggestion}</li>
-                  ))}
-                </ul>
+                <h4 className="mb-2 font-semibold">Improvement Suggestions</h4>
+                {jobMatch.suggestions?.length ? (
+                  <ul className="list-disc space-y-2 pl-5 text-sm text-[var(--ink-muted)]">
+                    {jobMatch.suggestions.map((suggestion, index) => (
+                      <li key={index}>{suggestion}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-[var(--ink-muted)]">
+                    No additional suggestions returned.
+                  </p>
+                )}
               </div>
             </div>
           )}
         </div>
       </Card>
-    </>
 
-<Card>
-  <CardHeader>
-    <CardTitle className="text-base">
-      ATS Analysis History
-    </CardTitle>
-    <CardDescription>
-      Track your resume score across previous analyses.
-    </CardDescription>
-  </CardHeader>
+      {/* ATS Analysis History */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">ATS Analysis History</CardTitle>
+          <CardDescription>
+            Track scores from previous analyses of this resume.
+          </CardDescription>
+        </CardHeader>
 
-  <div className="space-y-4">
-    {historyQuery.isLoading ? (
-      <p className="text-sm text-muted-foreground">
-        Loading analysis history...
-      </p>
-    ) : historyQuery.isError ? (
-      <p className="text-sm text-destructive">
-        Failed to load analysis history. Please refresh and try again.
-      </p>
-    ) : analysisHistory.length === 0 ? (
-      <p className="text-sm text-muted-foreground">
-        No previous analyses yet. Run your first ATS analysis to start tracking your score.
-      </p>
-    ) : (
-      <>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg border p-3">
-            <p className="text-sm text-muted-foreground">
-              Total Analyses
-            </p>
-            <p className="text-2xl font-semibold">
-              {analysisHistory.length}
-            </p>
+        {historyQuery.isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-16 rounded-xl" />
+            <Skeleton className="h-16 rounded-xl" />
           </div>
-
-          <div className="rounded-lg border p-3">
-            <p className="text-sm text-muted-foreground">
-              Latest ATS Score
-            </p>
-            <p className="text-2xl font-semibold">
-              {analysisHistory[0].atsScore}/100
-            </p>
-          </div>
-        </div>
-
-        {analysisHistory.map((item, index) => {
-          const previous = analysisHistory[index + 1];
-
-          const score = Number(item.atsScore);
-          const previousScore = previous
-            ? Number(previous.atsScore)
-            : null;
-
-          const change = previous
-            ? score - previousScore
-            : null;
-
-          const date = item.createdAt
-            ? new Date(item.createdAt).toLocaleString()
-            : "Date unavailable";
-
-          return (
-            <div
-              key={item._id || `${item.versionId}-${index}`}
-              className="space-y-2 rounded-lg border p-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">
-                    {item.targetRole || "General Resume Analysis"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {date}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Resume version: {item.versionId}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-lg font-semibold">
-                    {score}/100
-                  </p>
-
-                  {change !== null && (
-                    <p
-                      className={`text-xs ${
-                        change > 0
-                          ? "text-green-600"
-                          : change < 0
-                          ? "text-red-600"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {change > 0 ? "+" : ""}
-                      {change} points
-                    </p>
-                  )}
-                </div>
+        ) : historyQuery.isError ? (
+          <p className="text-sm text-[var(--danger)]">
+            Could not load history: {historyQuery.error?.message}
+          </p>
+        ) : analysisHistory.length === 0 ? (
+          <p className="py-6 text-center text-sm text-[var(--ink-muted)]">
+            No analysis history yet. Run an ATS analysis to start tracking.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-[var(--border)] p-3">
+                <p className="text-xs text-[var(--ink-muted)]">Total analyses</p>
+                <p className="mt-1 text-2xl font-semibold">
+                  {analysisHistory.length}
+                </p>
               </div>
 
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{
-                    width: `${Math.max(
-                      0,
-                      Math.min(100, score)
-                    )}%`,
-                  }}
-                />
+              <div className="rounded-xl border border-[var(--border)] p-3">
+                <p className="text-xs text-[var(--ink-muted)]">Latest ATS score</p>
+                <p className="mt-1 text-2xl font-semibold">
+                  {Number(analysisHistory[0].atsScore) || 0}/100
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[var(--border)] p-3">
+                <p className="text-xs text-[var(--ink-muted)]">
+                  Change from previous
+                </p>
+                <p className={`mt-1 text-2xl font-semibold ${
+                  scoreChange > 0
+                    ? "text-emerald-600"
+                    : scoreChange < 0
+                      ? "text-red-500"
+                      : "text-[var(--ink)]"
+                }`}>
+                  {scoreChange === null
+                    ? "—"
+                    : `${scoreChange > 0 ? "+" : ""}${scoreChange}`}
+                </p>
               </div>
             </div>
-          );
-        })}
-      </>
-    )}
-  </div>
-</Card>
-    
-<Card>
-  <CardHeader>
-    <CardTitle className="text-base">
-      ATS Analysis History
-    </CardTitle>
-    <CardDescription>
-      Track your resume score across analyses and versions.
-    </CardDescription>
-  </CardHeader>
 
-  {historyQuery.isLoading ? (
-    <div className="space-y-3">
-      <Skeleton className="h-16 rounded-xl" />
-      <Skeleton className="h-16 rounded-xl" />
-    </div>
-  ) : historyQuery.error ? (
-    <p className="text-sm text-[var(--danger)]">
-      Could not load analysis history: {historyQuery.error.message}
-    </p>
-  ) : analysisHistory.length === 0 ? (
-    <div className="py-6 text-center">
-      <p className="text-sm font-medium text-[var(--ink)]">
-        No analysis history yet
-      </p>
-      <p className="mt-1 text-sm text-[var(--ink-muted)]">
-        Run your first ATS analysis to start tracking your score.
-      </p>
-    </div>
-  ) : (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-[var(--border)] p-3">
-          <p className="text-xs text-[var(--ink-muted)]">
-            Total analyses
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-[var(--ink)]">
-            {analysisHistory.length}
-          </p>
-        </div>
+            <div className="space-y-3">
+              {analysisHistory.map((item, index) => {
+                const version = versions.find(
+                  (v) => String(v._id) === String(item.versionId)
+                );
+                const previousScore = analysisHistory[index + 1]
+                  ? Number(analysisHistory[index + 1].atsScore)
+                  : null;
+                const currentScore = Math.max(
+                  0,
+                  Math.min(100, Number(item.atsScore) || 0)
+                );
+                const delta = previousScore === null
+                  ? null
+                  : currentScore - previousScore;
 
-        <div className="rounded-xl border border-[var(--border)] p-3">
-          <p className="text-xs text-[var(--ink-muted)]">
-            Latest ATS score
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-[var(--ink)]">
-            {analysisHistory[0].atsScore}/100
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-[var(--border)] p-3">
-          <p className="text-xs text-[var(--ink-muted)]">
-            Change from previous
-          </p>
-          <p
-            className={`mt-1 text-2xl font-semibold ${
-              scoreChange > 0
-                ? "text-emerald-600"
-                : scoreChange < 0
-                  ? "text-red-500"
-                  : "text-[var(--ink)]"
-            }`}
-          >
-            {scoreChange === null
-              ? "—"
-              : `${scoreChange > 0 ? "+" : ""}${scoreChange}`}
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        {analysisHistory.map((item, index) => {
-          const version = versions.find(
-            (v) => String(v._id) === String(item.versionId)
-          );
-
-          const previousScore =
-            index < analysisHistory.length - 1
-              ? Number(analysisHistory[index + 1].atsScore)
-              : null;
-
-          const currentScore = Number(item.atsScore);
-
-          const delta =
-            previousScore === null
-              ? null
-              : currentScore - previousScore;
-
-          return (
-            <div
-              key={item._id}
-              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[var(--border)] p-4"
-            >
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-[var(--ink)]">
-                    {currentScore}/100
-                  </span>
-
-                  {index === 0 && (
-                    <Badge tone="accent">Latest</Badge>
-                  )}
-
-                  {delta !== null && (
-                    <Badge
-                      tone={
-                        delta > 0
-                          ? "success"
-                          : delta < 0
-                            ? "warning"
-                            : "neutral"
-                      }
-                    >
-                      {delta > 0 ? "+" : ""}
-                      {delta} points
-                    </Badge>
-                  )}
-                </div>
-
-                <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                  {item.targetRole || "No target role specified"}
-                </p>
-
-                <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                  {version?.label || `Resume version ${item.versionId}`}
-                  {" · "}
-                  {item.createdAt
-                    ? new Date(item.createdAt).toLocaleString("en-IN", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })
-                    : "Date unavailable"}
-                </p>
-              </div>
-
-              <div className="w-full sm:w-32 shrink-0">
-                <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden">
+                return (
                   <div
-                    className="h-full rounded-full bg-[var(--accent-strong)]"
-                    style={{
-                      width: `${Math.max(
-                        0,
-                        Math.min(100, currentScore)
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <p className="mt-1 text-right text-xs text-[var(--ink-muted)]">
-                  Score out of 100
-                </p>
-              </div>
+                    key={item._id || `${item.versionId}-${item.createdAt}-${index}`}
+                    className="flex flex-col gap-3 rounded-xl border border-[var(--border)] p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{currentScore}/100</span>
+                        {index === 0 && <Badge tone="accent">Latest</Badge>}
+                        {delta !== null && (
+                          <Badge tone={delta > 0 ? "success" : delta < 0 ? "warning" : "neutral"}>
+                            {delta > 0 ? "+" : ""}{delta} points
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                        {item.targetRole || "No target role specified"}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                        {version?.label || `Resume version ${item.versionId}`}
+                        {" · "}
+                        {item.createdAt
+                          ? new Date(item.createdAt).toLocaleString("en-IN", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : "Date unavailable"}
+                      </p>
+                    </div>
+
+                    <div className="w-full shrink-0 sm:w-32">
+                      <div className="h-2 overflow-hidden rounded-full bg-[var(--border)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent-strong)]"
+                          style={{ width: `${currentScore}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-right text-xs text-[var(--ink-muted)]">
+                        Score out of 100
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
-    </div>
-  )}
-</Card>
+          </div>
+        )}
+      </Card>
 
+      {/* ATS score-over-time chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">ATS Score Progress</CardTitle>
+          <CardDescription>
+            See how your score changes across saved analyses.
+          </CardDescription>
+        </CardHeader>
 
+        {historyQuery.isLoading ? (
+          <Skeleton className="h-64 rounded-xl" />
+        ) : historyQuery.isError ? (
+          <p className="text-sm text-[var(--danger)]">
+            The score chart is unavailable because history could not be loaded.
+          </p>
+        ) : chartData.length < 2 ? (
+          <div className="flex h-48 items-center justify-center text-center text-sm text-[var(--ink-muted)]">
+            Run at least two ATS analyses to see your score trend.
+          </div>
+        ) : (
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={chartData}
+                margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis domain={[0, 100]} width={35} />
+                <Tooltip
+                  formatter={(value) => [`${value}/100`, "ATS Score"]}
+                  labelFormatter={(label) => `Date: ${label}`}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="score"
+                  name="ATS Score"
+                  stroke="#2563eb"
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
 
+      {/* Current version analysis results */}
       {analysisQuery.isLoading && (
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <Skeleton className="h-[280px] rounded-3xl" />
           <Skeleton className="h-[280px] rounded-3xl lg:col-span-2" />
         </div>
@@ -613,7 +524,7 @@ export default function ResumeDetail() {
 
       {analysis && (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
             <div className="lg:col-span-4">
               <AtsGauge score={analysis.atsScore} delta={0} />
             </div>
@@ -621,17 +532,17 @@ export default function ResumeDetail() {
               <ScoreBreakdown breakdown={analysis.scoreBreakdown} />
             </div>
             <div className="lg:col-span-3">
-              <Card className="h-full flex flex-col">
+              <Card className="flex h-full flex-col">
                 <CardHeader>
                   <div>
                     <CardTitle className="text-base">Verdict</CardTitle>
                     <CardDescription className="mt-1">
-                      AI overall summary
+                      Overall summary
                     </CardDescription>
                   </div>
                   <Badge tone="accent">{analysis.model}</Badge>
                 </CardHeader>
-                <p className="text-sm text-[var(--ink)] leading-relaxed">
+                <p className="text-sm leading-relaxed text-[var(--ink)]">
                   {analysis.summary}
                 </p>
               </Card>
@@ -682,9 +593,11 @@ export default function ResumeDetail() {
         <Card>
           <CardHeader>
             <div>
-              <CardTitle className="text-base">Parsed Sections ({activeVersion.label})</CardTitle>
+              <CardTitle className="text-base">
+                Parsed Sections ({activeVersion.label})
+              </CardTitle>
               <CardDescription className="mt-1">
-                Quick preview of what we extracted from the PDF
+                Quick preview of the content extracted from your PDF.
               </CardDescription>
             </div>
           </CardHeader>
@@ -697,7 +610,7 @@ export default function ResumeDetail() {
 
 function PreviewLabel({ children }) {
   return (
-    <div className="text-[10px] uppercase tracking-wide text-[var(--ink-muted)] mb-1.5">
+    <div className="mb-1.5 text-[10px] uppercase tracking-wide text-[var(--ink-muted)]">
       {children}
     </div>
   );
@@ -710,21 +623,21 @@ function ParsedSectionsPreview({ version }) {
   return (
     <div className="space-y-4 text-sm">
       {(b.name || b.title || b.email) && (
-        <div className="pb-4 border-b border-[var(--border)]">
+        <div className="border-b border-[var(--border)] pb-4">
           {b.name && (
             <div className="font-display text-lg font-semibold tracking-tight text-[var(--ink)]">
               {b.name}
             </div>
           )}
           {b.title && (
-            <div className="text-[var(--accent-strong)] text-sm">{b.title}</div>
+            <div className="text-sm text-[var(--accent-strong)]">{b.title}</div>
           )}
-          <div className="text-xs text-[var(--ink-muted)] mt-1 flex flex-wrap gap-x-3 gap-y-1">
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--ink-muted)]">
             {b.email && <span>{b.email}</span>}
             {b.phone && <span>{b.phone}</span>}
             {b.location && <span>{b.location}</span>}
-            {(b.links || []).map((l, i) => (
-              <span key={i}>{l.label}</span>
+            {(b.links || []).map((link, i) => (
+              <span key={i}>{link.label}</span>
             ))}
           </div>
         </div>
@@ -733,41 +646,34 @@ function ParsedSectionsPreview({ version }) {
       {s.summary && (
         <div>
           <PreviewLabel>Summary</PreviewLabel>
-          <p className="text-[var(--ink)] leading-relaxed">{s.summary}</p>
+          <p className="leading-relaxed text-[var(--ink)]">{s.summary}</p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {s.experience?.length > 0 && (
           <div>
             <PreviewLabel>Experience ({s.experience.length})</PreviewLabel>
             <ul className="space-y-1.5">
-              {s.experience.slice(0, 5).map((e, i) => (
+              {s.experience.slice(0, 5).map((entry, i) => (
                 <li key={i}>
-                  <span className="text-[var(--ink)] font-medium">{e.role}</span>
-                  {e.company && (
-                    <span className="text-[var(--ink-muted)]"> · {e.company}</span>
-                  )}
-                  {e.period && (
-                    <span className="ml-2 text-[11px] text-[var(--ink-muted)]">
-                      {e.period}
-                    </span>
-                  )}
+                  <span className="font-medium text-[var(--ink)]">{entry.role}</span>
+                  {entry.company && <span className="text-[var(--ink-muted)]"> · {entry.company}</span>}
+                  {entry.period && <span className="ml-2 text-[11px] text-[var(--ink-muted)]">{entry.period}</span>}
                 </li>
               ))}
             </ul>
           </div>
         )}
+
         {s.education?.length > 0 && (
           <div>
             <PreviewLabel>Education ({s.education.length})</PreviewLabel>
             <ul className="space-y-1.5">
-              {s.education.map((e, i) => (
+              {s.education.map((entry, i) => (
                 <li key={i}>
-                  <span className="text-[var(--ink)] font-medium">{e.degree}</span>
-                  {e.school && (
-                    <span className="text-[var(--ink-muted)]"> · {e.school}</span>
-                  )}
+                  <span className="font-medium text-[var(--ink)]">{entry.degree}</span>
+                  {entry.school && <span className="text-[var(--ink-muted)]"> · {entry.school}</span>}
                 </li>
               ))}
             </ul>
@@ -779,8 +685,8 @@ function ParsedSectionsPreview({ version }) {
         <div>
           <PreviewLabel>Skills ({s.skills.length})</PreviewLabel>
           <div className="flex flex-wrap gap-1.5">
-            {s.skills.slice(0, 24).map((sk, i) => (
-              <Badge key={i} tone="accent">{sk}</Badge>
+            {s.skills.slice(0, 24).map((skill, i) => (
+              <Badge key={i} tone="accent">{skill}</Badge>
             ))}
           </div>
         </div>
@@ -790,12 +696,12 @@ function ParsedSectionsPreview({ version }) {
         <div>
           <PreviewLabel>Projects ({s.projects.length})</PreviewLabel>
           <ul className="space-y-1.5">
-            {s.projects.slice(0, 5).map((p, i) => (
+            {s.projects.slice(0, 5).map((project, i) => (
               <li key={i}>
-                <span className="text-[var(--ink)] font-medium">{p.name}</span>
-                {p.tech?.length > 0 && (
+                <span className="font-medium text-[var(--ink)]">{project.name}</span>
+                {project.tech?.length > 0 && (
                   <span className="ml-2 text-[11px] text-[var(--accent-strong)]">
-                    {p.tech.join(" · ")}
+                    {project.tech.join(" · ")}
                   </span>
                 )}
               </li>
@@ -804,36 +710,38 @@ function ParsedSectionsPreview({ version }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {s.certifications?.length > 0 && (
           <div>
             <PreviewLabel>Certifications</PreviewLabel>
             <ul className="space-y-1 text-xs text-[var(--ink-muted)]">
-              {s.certifications.map((c, i) => (
+              {s.certifications.map((cert, i) => (
                 <li key={i}>
-                  <span className="text-[var(--ink)]">{c.name}</span>
-                  {c.year && <span> · {c.year}</span>}
+                  <span className="text-[var(--ink)]">{cert.name}</span>
+                  {cert.year && <span> · {cert.year}</span>}
                 </li>
               ))}
             </ul>
           </div>
         )}
+
         {s.languages?.length > 0 && (
           <div>
             <PreviewLabel>Languages</PreviewLabel>
             <div className="flex flex-wrap gap-1">
-              {s.languages.map((l, i) => (
-                <Badge key={i} tone="neutral">{l}</Badge>
+              {s.languages.map((language, i) => (
+                <Badge key={i} tone="neutral">{language}</Badge>
               ))}
             </div>
           </div>
         )}
+
         {s.interests?.length > 0 && (
           <div>
             <PreviewLabel>Interests</PreviewLabel>
             <div className="flex flex-wrap gap-1">
-              {s.interests.map((l, i) => (
-                <Badge key={i} tone="neutral">{l}</Badge>
+              {s.interests.map((interest, i) => (
+                <Badge key={i} tone="neutral">{interest}</Badge>
               ))}
             </div>
           </div>
