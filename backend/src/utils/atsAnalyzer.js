@@ -1,3 +1,4 @@
+
 const SKILLS = [
   "javascript", "typescript", "python", "java", "c++", "c",
   "react", "node.js", "express", "html", "css", "tailwind",
@@ -22,7 +23,7 @@ const SECTION_PATTERNS = {
   projects: /\b(projects|academic projects|personal projects)\b/i,
   experience: /\b(experience|internship|work history|employment)\b/i,
   summary: /\b(summary|objective|profile|professional summary)\b/i,
-  certifications: /\b(certifications|certificates)\b/i,
+  certifications: /\b(certifications|certificates)\b/i
 };
 
 const STOPWORDS = new Set([
@@ -48,7 +49,11 @@ function normalize(text) {
 
 function containsTerm(text, term) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
+
+  return new RegExp(
+    `(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`,
+    "i"
+  ).test(text);
 }
 
 function detectSkills(text) {
@@ -57,26 +62,32 @@ function detectSkills(text) {
 
 function extractKeywords(jobDescription) {
   const text = normalize(jobDescription);
-
   const technicalSkills = detectSkills(text);
 
-  const words = text.match(/\b[a-z][a-z0-9+#.-]{3,}\b/g) || [];
+  const words =
+    text.match(/\b[a-z][a-z0-9+#.-]{3,}\b/g) || [];
 
-  const usefulWords = [...new Set(
-    words.filter((word) =>
-      !STOPWORDS.has(word) &&
-      !/^\d+$/.test(word)
+  const usefulWords = [
+    ...new Set(
+      words.filter(
+        (word) =>
+          !STOPWORDS.has(word) &&
+          !/^\d+$/.test(word)
+      )
     )
-  )];
+  ];
 
-  return [...new Set([
-    ...technicalSkills,
-    ...usefulWords
-  ])].slice(0, 40);
+  return [...new Set([...technicalSkills, ...usefulWords])]
+    .slice(0, 40);
 }
 
-function calculateATS(resumeText, targetRole = "", jobDescription = "") {
-  const text = normalize(resumeText);
+function calculateATS(
+  resumeText,
+  targetRole = "",
+  jobDescription = ""
+) {
+  const originalText = String(resumeText || "");
+  const text = normalize(originalText);
 
   if (text.length < 50) {
     throw new Error("Resume text is too short to analyze.");
@@ -88,47 +99,56 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
 
   const skills = detectSkills(text);
 
-  const keywords = jobDescription
-    ? extractKeywords(jobDescription)
-    : extractKeywords(targetRole);
+  const keywords = extractKeywords(
+    jobDescription || targetRole
+  );
 
   const keywordsPresent = keywords.filter((word) =>
     containsTerm(text, word)
   );
 
-  const keywordsMissing = keywords.filter((word) =>
-    !containsTerm(text, word)
+  const keywordsMissing = keywords.filter(
+    (word) => !containsTerm(text, word)
   );
 
   const keywordScore = keywords.length
-    ? Math.round((keywordsPresent.length / keywords.length) * 100)
+    ? Math.round(
+        (keywordsPresent.length / keywords.length) * 100
+      )
     : Math.min(100, skills.length * 10);
 
   const formattingChecks = [
-    /\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/i.test(text),
-    /\b(?:\+?\d[\d\s()-]{8,}\d)\b/.test(text),
+    /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i.test(originalText),
+    /(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,5}\)?[\s.-]?)?\d{3,5}[\s.-]?\d{4}/.test(originalText),
     text.length >= 500,
     text.length <= 12000,
-    /\n/.test(resumeText),
-    /(?:^|\n)\s*[-•▪●]/.test(resumeText),
+    /\n/.test(originalText),
+    /(?:^|\n)\s*[-•▪●]\s+/m.test(originalText)
   ];
 
   const formattingScore = Math.round(
-    (formattingChecks.filter(Boolean).length / formattingChecks.length) * 100
+    (formattingChecks.filter(Boolean).length /
+      formattingChecks.length) *
+      100
   );
 
   const experienceIndicators = [
     /\b(projects|experience|internship)\b/i.test(text),
     ACTION_VERBS.some((verb) => containsTerm(text, verb)),
-    /\b\d+\s*%/.test(text),
-    /\b\d+\+?\s*(users|customers|projects|clients|hours|records)\b/i.test(text),
+    /\b\d+(?:\.\d+)?\s*%/.test(text),
+    /\b\d+\+?\s*(users|customers|projects|clients|hours|records)\b/i.test(text)
   ];
 
   const experienceScore = Math.round(
-    (experienceIndicators.filter(Boolean).length / experienceIndicators.length) * 100
+    (experienceIndicators.filter(Boolean).length /
+      experienceIndicators.length) *
+      100
   );
 
-  const sectionScore = Math.round((sections.length / 6) * 100);
+  const sectionScore = Math.round(
+    (sections.length / Object.keys(SECTION_PATTERNS).length) *
+      100
+  );
 
   const skillsScore = Math.min(100, skills.length * 10);
 
@@ -137,12 +157,18 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
     skills: Math.round(skillsScore * 0.25),
     keywords: Math.round(keywordScore * 0.25),
     experience: Math.round(experienceScore * 0.20),
-    sections: Math.round(sectionScore * 0.10),
+    sections: Math.round(sectionScore * 0.10)
   };
 
   const atsScore = Math.min(
     100,
-    Math.max(0, Object.values(scoreBreakdown).reduce((a, b) => a + b, 0))
+    Math.max(
+      0,
+      Object.values(scoreBreakdown).reduce(
+        (total, score) => total + score,
+        0
+      )
+    )
   );
 
   const issues = [];
@@ -150,7 +176,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (!formattingChecks[0]) {
     issues.push({
       title: "Email address not detected",
-      description: "Ensure your contact email is present in selectable resume text.",
+      description:
+        "Ensure your contact email is present in selectable resume text.",
       severity: "high"
     });
   }
@@ -158,7 +185,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (!sections.includes("skills")) {
     issues.push({
       title: "Skills section missing",
-      description: "Add a clearly labeled technical skills section.",
+      description:
+        "Add a clearly labeled technical skills section.",
       severity: "medium"
     });
   }
@@ -166,7 +194,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (!sections.includes("projects")) {
     issues.push({
       title: "Projects section missing",
-      description: "Include relevant academic or personal projects.",
+      description:
+        "Include relevant academic or personal projects.",
       severity: "medium"
     });
   }
@@ -174,7 +203,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (!experienceIndicators[1]) {
     issues.push({
       title: "Use stronger action verbs",
-      description: "Describe your contributions with verbs such as Developed, Built, Implemented, or Designed.",
+      description:
+        "Where accurate, describe your contributions using verbs such as Developed, Built, Implemented, or Designed.",
       severity: "medium"
     });
   }
@@ -182,7 +212,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (!experienceIndicators[2] && !experienceIndicators[3]) {
     issues.push({
       title: "Add measurable achievements",
-      description: "Where accurate, quantify project outcomes, performance improvements, or usage.",
+      description:
+        "Where accurate, quantify project outcomes, performance improvements, or usage.",
       severity: "medium"
     });
   }
@@ -190,7 +221,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (keywordsMissing.length) {
     issues.push({
       title: "Some relevant keywords are missing",
-      description: "Review the missing keywords and include only those that accurately reflect your skills.",
+      description:
+        "Review missing keywords and include only those that accurately reflect your skills.",
       severity: "medium"
     });
   }
@@ -221,7 +253,8 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
   if (experienceIndicators[2] || experienceIndicators[3]) {
     strengths.push({
       title: "Measurable results detected",
-      description: "Your resume contains numerical achievement indicators."
+      description:
+        "Your resume contains numerical achievement indicators."
     });
   }
 
@@ -240,7 +273,7 @@ function calculateATS(resumeText, targetRole = "", jobDescription = "") {
     skills,
     sections,
     matchPercentage: jobDescription ? keywordScore : null,
-    suggestions: issues.map((issue) => issue.description),
+    suggestions: issues.map((issue) => issue.description)
   };
 }
 
