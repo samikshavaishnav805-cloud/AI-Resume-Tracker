@@ -24,6 +24,7 @@ import {
   useAnalyzeResume,
   useApplyRewrites,
   useMatchJob,
+  useAnalyses,
 } from "@/hooks/useResumes";
 
 export default function ResumeDetail() {
@@ -48,6 +49,15 @@ export default function ResumeDetail() {
 
   const analysisQuery = useAnalysisForVersion(id, activeVersionId);
   const analysis = analysisQuery.data;
+
+  const historyQuery = useAnalyses(id);
+  const analysisHistory = historyQuery.data || [];
+
+  const scoreChange =
+    analysisHistory.length >= 2
+      ? Number(analysisHistory[0].atsScore) -
+        Number(analysisHistory[1].atsScore)
+      : null;
 
   const analyze = useAnalyzeResume(id);
   const matchJob = useMatchJob(id);
@@ -313,7 +323,168 @@ export default function ResumeDetail() {
       </Card>
     </>
 
+    
+<Card>
+  <CardHeader>
+    <CardTitle className="text-base">
+      ATS Analysis History
+    </CardTitle>
+    <CardDescription>
+      Track your resume score across analyses and versions.
+    </CardDescription>
+  </CardHeader>
+
+  {historyQuery.isLoading ? (
+    <div className="space-y-3">
+      <Skeleton className="h-16 rounded-xl" />
+      <Skeleton className="h-16 rounded-xl" />
+    </div>
+  ) : historyQuery.error ? (
+    <p className="text-sm text-[var(--danger)]">
+      Could not load analysis history: {historyQuery.error.message}
+    </p>
+  ) : analysisHistory.length === 0 ? (
+    <div className="py-6 text-center">
+      <p className="text-sm font-medium text-[var(--ink)]">
+        No analysis history yet
+      </p>
+      <p className="mt-1 text-sm text-[var(--ink-muted)]">
+        Run your first ATS analysis to start tracking your score.
+      </p>
+    </div>
+  ) : (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-[var(--border)] p-3">
+          <p className="text-xs text-[var(--ink-muted)]">
+            Total analyses
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-[var(--ink)]">
+            {analysisHistory.length}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-[var(--border)] p-3">
+          <p className="text-xs text-[var(--ink-muted)]">
+            Latest ATS score
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-[var(--ink)]">
+            {analysisHistory[0].atsScore}/100
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-[var(--border)] p-3">
+          <p className="text-xs text-[var(--ink-muted)]">
+            Change from previous
+          </p>
+          <p
+            className={`mt-1 text-2xl font-semibold ${
+              scoreChange > 0
+                ? "text-emerald-600"
+                : scoreChange < 0
+                  ? "text-red-500"
+                  : "text-[var(--ink)]"
+            }`}
+          >
+            {scoreChange === null
+              ? "—"
+              : `${scoreChange > 0 ? "+" : ""}${scoreChange}`}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {analysisHistory.map((item, index) => {
+          const version = versions.find(
+            (v) => String(v._id) === String(item.versionId)
+          );
+
+          const previousScore =
+            index < analysisHistory.length - 1
+              ? Number(analysisHistory[index + 1].atsScore)
+              : null;
+
+          const currentScore = Number(item.atsScore);
+
+          const delta =
+            previousScore === null
+              ? null
+              : currentScore - previousScore;
+
+          return (
+            <div
+              key={item._id}
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[var(--border)] p-4"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-[var(--ink)]">
+                    {currentScore}/100
+                  </span>
+
+                  {index === 0 && (
+                    <Badge tone="accent">Latest</Badge>
+                  )}
+
+                  {delta !== null && (
+                    <Badge
+                      tone={
+                        delta > 0
+                          ? "success"
+                          : delta < 0
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {delta > 0 ? "+" : ""}
+                      {delta} points
+                    </Badge>
+                  )}
+                </div>
+
+                <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                  {item.targetRole || "No target role specified"}
+                </p>
+
+                <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                  {version?.label || `Resume version ${item.versionId}`}
+                  {" · "}
+                  {item.createdAt
+                    ? new Date(item.createdAt).toLocaleString("en-IN", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "Date unavailable"}
+                </p>
+              </div>
+
+              <div className="w-full sm:w-32 shrink-0">
+                <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent-strong)]"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, currentScore)
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-1 text-right text-xs text-[var(--ink-muted)]">
+                  Score out of 100
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  )}
+</Card>
+
+
       {analysisQuery.isLoading && (
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <Skeleton className="h-[280px] rounded-3xl" />
           <Skeleton className="h-[280px] rounded-3xl lg:col-span-2" />
