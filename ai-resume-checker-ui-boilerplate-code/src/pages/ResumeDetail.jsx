@@ -46,18 +46,35 @@ export default function ResumeDetail() {
   const versions = data?.versions || [];
 
   const [activeVersionId, setActiveVersionId] = useState(null);
+
+
   const [targetRole, setTargetRole] = useState("");
   const [tab, setTab] = useState("score");
   const [jobDescription, setJobDescription] = useState("");
   const [jobMatch, setJobMatch] = useState(null);
+  const [compareFromId, setCompareFromId] = useState("");
+  const [compareToId, setCompareToId] = useState("");
 
   useEffect(() => {
-    if (!activeVersionId && versions.length) {
-      setActiveVersionId(
-        resume?.currentVersionId || versions[versions.length - 1]._id
-      );
-    }
-  }, [versions, resume, activeVersionId]);
+  if (versions.length < 2) return;
+
+  const firstId = String(versions[0]._id);
+  const secondId = String(versions[1]._id);
+
+  setCompareFromId((current) =>
+    current && versions.some((v) => String(v._id) === current)
+      ? current
+      : firstId
+  );
+
+  setCompareToId((current) =>
+    current &&
+    current !== firstId &&
+    versions.some((v) => String(v._id) === current)
+      ? current
+      : secondId
+  );
+}, [versions]);
 
   const activeVersion = useMemo(
     () => versions.find(
@@ -68,6 +85,45 @@ export default function ResumeDetail() {
 
   const analysisQuery = useAnalysisForVersion(id, activeVersionId);
   const analysis = analysisQuery.data;
+
+  // ATS analyses for the two selected resume versions
+const compareFromQuery = useAnalysisForVersion(id, compareFromId);
+const compareToQuery = useAnalysisForVersion(id, compareToId);
+
+const compareFromAnalysis = compareFromQuery.data;
+const compareToAnalysis = compareToQuery.data;
+
+const comparisonReady =
+  compareFromId &&
+  compareToId &&
+  compareFromId !== compareToId &&
+  compareFromAnalysis &&
+  compareToAnalysis;
+
+const comparisonScoreChange = comparisonReady
+  ? Number(compareToAnalysis.atsScore || 0) -
+    Number(compareFromAnalysis.atsScore || 0)
+  : null;
+
+const fromKeywords = new Set(
+  (compareFromAnalysis?.keywordsPresent || []).map((k) =>
+    String(k).toLowerCase()
+  )
+);
+
+const toKeywords = new Set(
+  (compareToAnalysis?.keywordsPresent || []).map((k) =>
+    String(k).toLowerCase()
+  )
+);
+
+const keywordsGained = (compareToAnalysis?.keywordsPresent || []).filter(
+  (k) => !fromKeywords.has(String(k).toLowerCase())
+);
+
+const keywordsLost = (compareFromAnalysis?.keywordsPresent || []).filter(
+  (k) => !toKeywords.has(String(k).toLowerCase())
+);
 
   const historyQuery = useAnalyses(id);
   const analysisHistory = historyQuery.data || [];
@@ -103,7 +159,7 @@ export default function ResumeDetail() {
     }
   }
 
-  async function runJobMatch() {
+    async function runJobMatch() {
     if (!jobDescription.trim() || !activeVersionId) return;
     try {
       const result = await matchJob.mutateAsync({
@@ -513,6 +569,235 @@ export default function ResumeDetail() {
           </div>
         )}
       </Card>
+
+    {/* ATS Resume Version Comparison */}
+<Card>
+  <CardHeader>
+    <CardTitle className="text-base">
+      ATS Resume Version Comparison
+    </CardTitle>
+    <CardDescription>
+      Compare saved ATS analyses to see how your resume has improved.
+    </CardDescription>
+  </CardHeader>
+
+  {versions.length < 2 ? (
+    <p className="py-6 text-center text-sm text-[var(--ink-muted)]">
+      Upload another resume version to compare ATS scores.
+    </p>
+  ) : (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            Older version
+          </label>
+
+          <select
+            value={compareFromId}
+            onChange={(e) => {
+              const value = e.target.value;
+              setCompareFromId(value);
+
+              if (value === compareToId) {
+                const alternative = versions.find(
+                  (v) => String(v._id) !== value
+                );
+                setCompareToId(
+                  alternative ? String(alternative._id) : ""
+                );
+              }
+            }}
+            className="w-full rounded-xl border border-[var(--border)] bg-transparent p-3 text-sm text-[var(--ink)]"
+          >
+            {versions.map((version) => (
+              <option
+                key={version._id}
+                value={String(version._id)}
+                disabled={String(version._id) === compareToId}
+              >
+                {version.label || `Version ${version._id}`}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            Newer version
+          </label>
+
+          <select
+            value={compareToId}
+            onChange={(e) => {
+              const value = e.target.value;
+              setCompareToId(value);
+
+              if (value === compareFromId) {
+                const alternative = versions.find(
+                  (v) => String(v._id) !== value
+                );
+                setCompareFromId(
+                  alternative ? String(alternative._id) : ""
+                );
+              }
+            }}
+            className="w-full rounded-xl border border-[var(--border)] bg-transparent p-3 text-sm text-[var(--ink)]"
+          >
+            {versions.map((version) => (
+              <option
+                key={version._id}
+                value={String(version._id)}
+                disabled={String(version._id) === compareFromId}
+              >
+                {version.label || `Version ${version._id}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {compareFromQuery.isLoading || compareToQuery.isLoading ? (
+        <Skeleton className="h-32 rounded-xl" />
+      ) : compareFromQuery.isError || compareToQuery.isError ? (
+        <p className="rounded-xl bg-[#F8E3E0] p-3 text-sm text-[var(--danger)]">
+          Could not load one of the saved analyses. Run an ATS
+          analysis on both versions before comparing them.
+        </p>
+      ) : !comparisonReady ? (
+        <p className="rounded-xl border border-[var(--border)] p-4 text-sm text-[var(--ink-muted)]">
+          Both versions need a saved ATS analysis. Select another
+          version or run an analysis first.
+        </p>
+      ) : (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-[var(--border)] p-4">
+              <p className="text-xs text-[var(--ink-muted)]">
+                Older score
+              </p>
+              <p className="mt-1 text-2xl font-semibold">
+                {Number(compareFromAnalysis.atsScore || 0)}/100
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-[var(--border)] p-4">
+              <p className="text-xs text-[var(--ink-muted)]">
+                Newer score
+              </p>
+              <p className="mt-1 text-2xl font-semibold">
+                {Number(compareToAnalysis.atsScore || 0)}/100
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-[var(--border)] p-4">
+              <p className="text-xs text-[var(--ink-muted)]">
+                Score change
+              </p>
+              <p
+                className={`mt-1 text-2xl font-semibold ${
+                  comparisonScoreChange > 0
+                    ? "text-emerald-600"
+                    : comparisonScoreChange < 0
+                      ? "text-red-500"
+                      : "text-[var(--ink)]"
+                }`}
+              >
+                {comparisonScoreChange > 0 ? "+" : ""}
+                {comparisonScoreChange}
+              </p>
+              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                points
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-3 font-semibold">
+              Score Comparison
+            </h4>
+
+            <div className="space-y-4">
+              {[
+                {
+                  label: "Older version",
+                  score: Number(compareFromAnalysis.atsScore || 0),
+                },
+                {
+                  label: "Newer version",
+                  score: Number(compareToAnalysis.atsScore || 0),
+                },
+              ].map((item) => (
+                <div key={item.label}>
+                  <div className="mb-1 flex justify-between text-sm">
+                    <span>{item.label}</span>
+                    <span className="font-medium">
+                      {item.score}/100
+                    </span>
+                  </div>
+
+                  <div className="h-3 overflow-hidden rounded-full bg-[var(--border)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--accent-strong)]"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, item.score)
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div>
+              <h4 className="mb-2 font-semibold">
+                Keywords Gained
+              </h4>
+
+              <div className="flex flex-wrap gap-2">
+                {keywordsGained.length ? (
+                  keywordsGained.map((keyword) => (
+                    <Badge key={keyword} tone="success">
+                      + {keyword}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-sm text-[var(--ink-muted)]">
+                    No new keywords detected.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="mb-2 font-semibold">
+                Keywords Lost
+              </h4>
+
+              <div className="flex flex-wrap gap-2">
+                {keywordsLost.length ? (
+                  keywordsLost.map((keyword) => (
+                    <Badge key={keyword} tone="warning">
+                      − {keyword}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-sm text-[var(--ink-muted)]">
+                    No previously detected keywords were lost.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )}
+</Card>
 
       {/* Current version analysis results */}
       {analysisQuery.isLoading && (

@@ -43,6 +43,24 @@ export function useAnalysisForVersion(id, versionId) {
   });
 }
 
+
+export function useCompareVersionAnalyses(
+  id,
+  firstVersionId,
+  secondVersionId
+) {
+  const firstQuery = useAnalysisForVersion(id, firstVersionId);
+  const secondQuery = useAnalysisForVersion(id, secondVersionId);
+
+  return {
+    firstAnalysis: firstQuery.data ?? null,
+    secondAnalysis: secondQuery.data ?? null,
+    isLoading: firstQuery.isLoading || secondQuery.isLoading,
+    isError: firstQuery.isError || secondQuery.isError,
+  };
+}
+
+
 export function useAnalyses(id) {
   return useQuery({
     queryKey: resumeKeys.analyses(id),
